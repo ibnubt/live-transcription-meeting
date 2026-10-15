@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>id.ibnu.livetranscription</string>
+  <key>CFBundleName</key><string>Live Transcription</string>
+  <key>CFBundleDisplayName</key><string>Live Transcription</string>
+  <key>CFBundleExecutable</key><string>LiveTranscription</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>26.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Mentranskrip suara Anda saat meeting.</string>
+  <key>NSAudioCaptureUsageDescription</key><string>Mendengar suara lawan bicara dari Zoom/Meet/Teams untuk ditranskrip.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Mentranskrip percakapan meeting di perangkat (on-device).</string>
+  <key>LiveHome</key><string>__HOME__</string>
+</dict>
+</plist>
