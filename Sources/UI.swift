@@ -109,6 +109,15 @@ struct ContentView: View {
                 .controlSize(.small)
                 .help("Susun jawaban untuk ucapan terakhir mereka (⌃⌥J)")
             Menu {
+                Menu("Profil: \(c.profileLabel)") {
+                    Button((c.profile.isEmpty ? "✓ " : "") + "Utama") { c.switchProfile("") }
+                    ForEach(c.profiles, id: \.self) { p in
+                        Button((c.profile == p ? "✓ " : "") + p) { c.switchProfile(p) }
+                    }
+                    Divider()
+                    Button("Profil baru…") { c.promptNewProfile() }
+                }
+                Divider()
                 Picker("Format jawaban", selection: $c.cueMode) {
                     Text("Poin — dilirik, diucapkan sendiri").tag(true)
                     Text("Naskah — kalimat lengkap").tag(false)

@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = FloatingPanel(rect: NSRect(x: 0, y: 0, width: 440, height: 600), hiddenFromCapture: hidden)
         panel.contentView = NSHostingView(rootView: ContentView(
             c: copilot,
-            openFolder: { NSWorkspace.shared.open(config.home) },
+            openFolder: { [weak self] in NSWorkspace.shared.open(self?.copilot.config.profileHome ?? config.home) },
             toggleCompact: { [weak self] in self?.toggleCompact() },
             quit: { NSApp.terminate(nil) }))
         panel.setFrameAutosaveName("LiveTranscriptionPanel")
@@ -133,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         copilot.status = "Dimuat ulang · " + copilot.docsSummary
     }
 
-    @objc func openFolder() { NSWorkspace.shared.open(copilot.config.home) }
+    @objc func openFolder() { NSWorkspace.shared.open(copilot.config.profileHome) }
 
     @objc func quit() { NSApp.terminate(nil) }
 }
@@ -170,7 +170,7 @@ func testFile(_ path: String) async {
 @MainActor
 func testAsk(_ question: String) async {
     let cfg = Config.load()
-    let k = KnowledgeLoader.load(home: cfg.home)
+    let k = KnowledgeLoader.load(home: cfg.profileHome)
     print("dokumen:", k.docNames, "| gaya.md:", k.style.isEmpty ? "kosong" : "\(k.style.count) karakter", "| contoh:", k.examples.count)
     let llm = LLMClient(endpoints: cfg.endpoints(), hedge: cfg.num("LLM_HEDGE_SECONDS", 1.5),
                         maxTokens: Int(cfg.num("LLM_MAX_TOKENS", 220)))
@@ -232,7 +232,7 @@ func testSystem(_ seconds: Int) async {
 @MainActor
 func testConvo(_ path: String) async {
     let cfg = Config.load()
-    let k = KnowledgeLoader.load(home: cfg.home)
+    let k = KnowledgeLoader.load(home: cfg.profileHome)
     print("dokumen:", k.docNames, "| gaya.md:", k.style.count, "karakter")
     let llm = LLMClient(endpoints: cfg.endpoints(), hedge: cfg.num("LLM_HEDGE_SECONDS", 1.5),
                         maxTokens: Int(cfg.num("LLM_MAX_TOKENS", 220)))

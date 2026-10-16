@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import Speech
@@ -60,7 +61,11 @@ final class Copilot: ObservableObject {
     /// Mode ringkas: false = hanya jawaban terbaru (default), true = seluruh percakapan bisa digulir.
     @Published var convoView = false { didSet { UserDefaults.standard.set(convoView, forKey: "convoView") } }
     /// Catatan tugas (mis. desain HackerRank yang baru saya kerjakan) — ikut dikirim ke AI.
-    @Published var taskNotes = "" { didSet { UserDefaults.standard.set(taskNotes, forKey: "taskNotes") } }
+    @Published var taskNotes = "" { didSet { UserDefaults.standard.set(taskNotes, forKey: notesKey) } }
+    /// Profil aktif (kosong = utama) dan daftar profil tambahan di folder profil/.
+    @Published private(set) var profile = ""
+    @Published private(set) var profiles: [String] = []
+    private var notesKey: String { profile.isEmpty ? "taskNotes" : "taskNotes.\(profile)" }
 
     private(set) var config: Config
     private(set) var knowledge = Knowledge()
@@ -77,17 +82,18 @@ final class Copilot: ObservableObject {
     private var answeredLineID: UUID?
     private var recentBridges: [String] = []
     private var loggedIDs = Set<UUID>()
-    private let log: TranscriptLog
+    private var log: TranscriptLog
 
     init(config: Config) {
         self.config = config
-        log = TranscriptLog(dir: config.home.appendingPathComponent("transkrip"))
+        log = TranscriptLog(dir: config.profileHome.appendingPathComponent("transkrip"))
+        profile = config.profile
         let d = UserDefaults.standard
         if d.object(forKey: "fontSize") != nil { fontSize = d.double(forKey: "fontSize") }
         if d.object(forKey: "opacity") != nil { opacity = d.double(forKey: "opacity") }
         cueMode = d.object(forKey: "cueMode") != nil ? d.bool(forKey: "cueMode") : config.str("ANSWER_STYLE", "poin") != "naskah"
         compact = d.bool(forKey: "compact")
-        taskNotes = d.string(forKey: "taskNotes") ?? ""
+        taskNotes = d.string(forKey: notesKey) ?? ""
         convoView = d.bool(forKey: "convoView")
         reload()
     }
@@ -95,11 +101,60 @@ final class Copilot: ObservableObject {
     /// Muat ulang .env, dokumen, gaya.md, dan contoh ucapan — tanpa restart.
     func reload() {
         config = Config.load()
-        knowledge = KnowledgeLoader.load(home: config.home)
+        profile = config.profile
+        profiles = Config.profiles(home: config.home)
+        knowledge = KnowledgeLoader.load(home: config.profileHome)
         // Ucapan lama dari transkrip = bacaan saya yang penuh "uh"; hanya dipakai kalau diminta.
         if config.str("STYLE_EXAMPLES", "0") != "1" { knowledge.examples = [] }
         llm = LLMClient(endpoints: config.endpoints(), hedge: config.num("LLM_HEDGE_SECONDS", 1.5),
                         maxTokens: Int(config.num("LLM_MAX_TOKENS", 220)))
+    }
+
+    var profileLabel: String {
+        profile.isEmpty ? config.str("MY_NAME", "Utama") + " (utama)" : config.str("MY_NAME", profile)
+    }
+
+    /// Ganti profil: layar dibersihkan, lalu dokumen, gaya, transkrip dan catatan tugas ikut profil baru.
+    func switchProfile(_ name: String) {
+        flushAll()
+        answerTask?.cancel()
+        UserDefaults.standard.set(name, forKey: "profile")
+        lines.removeAll()
+        answers.removeAll()
+        volatileThem = ""
+        volatileMe = ""
+        answeredLineID = nil
+        loggedIDs.removeAll()
+        reload()
+        log = TranscriptLog(dir: config.profileHome.appendingPathComponent("transkrip"))
+        taskNotes = UserDefaults.standard.string(forKey: notesKey) ?? ""
+        status = "Profil: \(profileLabel) · " + docsSummary
+        tick &+= 1
+    }
+
+    /// Minta nama, buat profil/<nama>/dokumen/ + profil.env, pindah ke profil itu, lalu buka foldernya.
+    func promptNewProfile() {
+        let alert = NSAlert()
+        alert.messageText = "Profil baru"
+        alert.informativeText = "Nama profil (mis. nama teman). Setelah dibuat, taruh CV di folder dokumen/ yang terbuka, lalu pilih Muat ulang."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Buat")
+        alert.addButton(withTitle: "Batal")
+        NSApp.activate()
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        guard !name.isEmpty, !name.hasPrefix(".") else { return }
+        let dir = Config.profilesDir(config.home).appendingPathComponent(name)
+        try? FileManager.default.createDirectory(at: dir.appendingPathComponent("dokumen"), withIntermediateDirectories: true)
+        let envFile = dir.appendingPathComponent("profil.env")
+        if !FileManager.default.fileExists(atPath: envFile.path) {
+            try? "# Pengaturan khusus profil ini (menimpa .env utama)\nMY_NAME=\(name)\n".write(to: envFile, atomically: true, encoding: .utf8)
+        }
+        switchProfile(name)
+        NSWorkspace.shared.open(dir.appendingPathComponent("dokumen"))
     }
 
     var docsSummary: String {

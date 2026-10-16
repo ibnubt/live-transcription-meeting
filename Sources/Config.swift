@@ -17,25 +17,54 @@ struct Endpoint {
 
 /// Konfigurasi dari `.env` di folder proyek (folder yang berisi dokumen/, gaya.md, transkrip/).
 struct Config {
+    /// Folder app (berisi .env dan profil/).
     let home: URL
+    /// Folder data profil aktif: dokumen/, gaya.md, transkrip/. Profil utama = `home` itu sendiri.
+    let profileHome: URL
+    /// Nama profil aktif; kosong = profil utama.
+    let profile: String
     let env: [String: String]
 
+    /// .env utama, lalu profil.env milik profil aktif (LIVE_PROFILE → pilihan terakhir di menu).
     static func load() -> Config {
         let home = findHome()
-        var env: [String: String] = [:]
-        if let s = try? String(contentsOf: home.appendingPathComponent(".env"), encoding: .utf8) {
-            for raw in s.split(separator: "\n") {
-                let line = raw.trimmingCharacters(in: .whitespaces)
-                guard !line.isEmpty, !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { continue }
-                let k = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
-                var v = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
-                if v.count >= 2, (v.hasPrefix("\"") && v.hasSuffix("\"")) || (v.hasPrefix("'") && v.hasSuffix("'")) {
-                    v = String(v.dropFirst().dropLast())
-                }
-                env[k] = v
-            }
+        var env = parseEnv(home.appendingPathComponent(".env"))
+        let name = ProcessInfo.processInfo.environment["LIVE_PROFILE"] ?? UserDefaults.standard.string(forKey: "profile") ?? ""
+        let dir = profilesDir(home).appendingPathComponent(name)
+        var isDir: ObjCBool = false
+        if !name.isEmpty, FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue {
+            env.merge(parseEnv(dir.appendingPathComponent("profil.env"))) { _, profileValue in profileValue }
+            return Config(home: home, profileHome: dir, profile: name, env: env)
         }
-        return Config(home: home, env: env)
+        return Config(home: home, profileHome: home, profile: "", env: env)
+    }
+
+    static func profilesDir(_ home: URL) -> URL { home.appendingPathComponent("profil") }
+
+    /// Profil tambahan = subfolder di profil/.
+    static func profiles(home: URL) -> [String] {
+        let dir = profilesDir(home)
+        return ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .map(\.lastPathComponent)
+            .filter { !$0.hasPrefix(".") }
+            .sorted()
+    }
+
+    static func parseEnv(_ url: URL) -> [String: String] {
+        var env: [String: String] = [:]
+        guard let s = try? String(contentsOf: url, encoding: .utf8) else { return env }
+        for raw in s.split(separator: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { continue }
+            let k = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+            var v = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            if v.count >= 2, (v.hasPrefix("\"") && v.hasSuffix("\"")) || (v.hasPrefix("'") && v.hasSuffix("'")) {
+                v = String(v.dropFirst().dropLast())
+            }
+            env[k] = v
+        }
+        return env
     }
 
     /// LIVE_HOME (env) → LiveHome (Info.plist, diisi build.sh) → folder kerja.

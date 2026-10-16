@@ -46,6 +46,13 @@ Indikator di kiri atas: biru = suara mereka, kuning = mic Anda. Gunakan headphon
 - **Kalimat jembatan:** begitu pertanyaan selesai, satu kalimat pembuka berwarna biru langsung muncul untuk diucapkan sambil menunggu jawaban.
 - **Catatan tugas (mode lengkap, di bawah):** tempel desain/solusi tugas (mis. HackerRank) supaya pertanyaan tentang "your design" dijawab dari solusi Anda.
 
+## Profil (beberapa orang di satu Mac)
+
+- **Profil utama** memakai folder app ini: `dokumen/`, `gaya.md`, `transkrip/`.
+- **Profil lain** ada di `profil/<nama>/` dengan `dokumen/` (minimal CV), `transkrip/`, opsional `gaya.md`, dan `profil.env` untuk menimpa pengaturan `.env` (mis. `MY_NAME`, `ANSWER_MAX_WORDS`).
+- Ganti lewat menu ⋯ → **Profil**, atau **Profil baru…** untuk membuat folder baru. Layar dibersihkan; dokumen, transkrip dan catatan tugas ikut profil.
+- Profil hanya berisi CV (tanpa `gaya.md`) berarti prompt lebih kecil dan jawaban lebih cepat. Folder `profil/` tidak ikut di-commit.
+
 ## Supaya jawaban sesuai gaya Anda
 
 - `dokumen/`: taruh CV dan bahan lain (PDF, DOCX, MD, TXT).
