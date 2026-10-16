@@ -16,7 +16,7 @@ enum KnowledgeLoader {
 
     static func load(home: URL) -> Knowledge {
         var k = Knowledge()
-        let dir = home.appendingPathComponent("dokumen")
+        let dir = home.appendingPathComponent("dokumen").resolvingSymlinksInPath()
         let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
             .filter { !$0.lastPathComponent.hasPrefix(".") }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -60,6 +60,7 @@ enum KnowledgeLoader {
 
     /// Ucapan saya (≥ 8 kata) dari transkrip sebelumnya, untuk meniru gaya bicara.
     static func pastUtterances(_ dir: URL) -> [String] {
+        let dir = dir.resolvingSymlinksInPath()
         let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.pathExtension == "md" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }

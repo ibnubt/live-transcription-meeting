@@ -32,9 +32,19 @@ LLM bisa endpoint apa saja yang kompatibel OpenAI (Tokenku, OpenRouter, Ollama l
 | ⌃⌥J | Jawab sekarang (ucapan terakhir mereka) |
 | ⌃⌥H | Sembunyikan / tampilkan panel |
 | ⌃⌥A | Auto-jawab hidup / mati |
+| ⌃⌥K | Mode ringkas di bawah kamera / mode lengkap |
+| ⌃⌥→ / ⌃⌥← | Gulir satu kalimat di mode ringkas |
 | Kolom bawah | Ketik pertanyaan sendiri kalau transkripnya meleset |
 
 Indikator di kiri atas: biru = suara mereka, kuning = mic Anda. Gunakan headphone supaya mic tidak menangkap suara mereka dari speaker. Kalau tetap tertangkap, ada filter yang membuang ucapan yang sama.
+
+## Tampilan
+
+- **Mode ringkas (⌃⌥K):** panel kecil di tengah atas, tepat di bawah kamera, supaya mata tetap dekat kamera. Di atas ada strip "Mereka" (pertanyaan interviewer), di bawahnya jawaban.
+- **Menu ⋯ → Format jawaban:** *Naskah* (kalimat utuh, satu kalimat per baris) atau *Poin* (frasa pendek untuk dilirik).
+- **Menu ⋯ → Tampilan mode ringkas:** *Jawaban terbaru* (default) atau *Seluruh percakapan* (semua giliran bisa digulir).
+- **Kalimat jembatan:** begitu pertanyaan selesai, satu kalimat pembuka berwarna biru langsung muncul untuk diucapkan sambil menunggu jawaban.
+- **Catatan tugas (mode lengkap, di bawah):** tempel desain/solusi tugas (mis. HackerRank) supaya pertanyaan tentang "your design" dijawab dari solusi Anda.
 
 ## Supaya jawaban sesuai gaya Anda
 
@@ -62,4 +72,6 @@ Setelah build ulang, macOS menganggapnya app baru, jadi izin harus diberikan lag
 ```bash
 "build/Live Transcription.app/Contents/MacOS/LiveTranscription" --test-ask "Tell me about yourself"
 "build/Live Transcription.app/Contents/MacOS/LiveTranscription" --test-file rekaman.wav
+"build/Live Transcription.app/Contents/MacOS/LiveTranscription" --test-convo pertanyaan.txt   # simulasi wawancara: 1 baris = 1 pertanyaan
+"build/Live Transcription.app/Contents/MacOS/LiveTranscription" --ui-preview convo         # pratinjau tampilan tanpa mic/audio
 ```

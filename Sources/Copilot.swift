@@ -51,6 +51,16 @@ final class Copilot: ObservableObject {
         }
     }
     var onOpacity: ((Double) -> Void)?
+    /// Poin (dilirik) vs naskah (dibaca). Default dari ANSWER_STYLE di .env, bisa diganti dari menu.
+    @Published var cueMode = true { didSet { UserDefaults.standard.set(cueMode, forKey: "cueMode") } }
+    /// Mode ringkas: hanya jawaban, panel kecil di bawah kamera.
+    @Published var compact = false { didSet { UserDefaults.standard.set(compact, forKey: "compact") } }
+    /// Kalimat yang digulir ke atas oleh ⌃⌥→ / ⌃⌥← di mode ringkas.
+    @Published var focusIndex = 0
+    /// Mode ringkas: false = hanya jawaban terbaru (default), true = seluruh percakapan bisa digulir.
+    @Published var convoView = false { didSet { UserDefaults.standard.set(convoView, forKey: "convoView") } }
+    /// Catatan tugas (mis. desain HackerRank yang baru saya kerjakan) — ikut dikirim ke AI.
+    @Published var taskNotes = "" { didSet { UserDefaults.standard.set(taskNotes, forKey: "taskNotes") } }
 
     private(set) var config: Config
     private(set) var knowledge = Knowledge()
@@ -65,6 +75,7 @@ final class Copilot: ObservableObject {
     private var turnTimer: Task<Void, Never>?
     private var answerTask: Task<Void, Never>?
     private var answeredLineID: UUID?
+    private var recentBridges: [String] = []
     private var loggedIDs = Set<UUID>()
     private let log: TranscriptLog
 
@@ -74,6 +85,10 @@ final class Copilot: ObservableObject {
         let d = UserDefaults.standard
         if d.object(forKey: "fontSize") != nil { fontSize = d.double(forKey: "fontSize") }
         if d.object(forKey: "opacity") != nil { opacity = d.double(forKey: "opacity") }
+        cueMode = d.object(forKey: "cueMode") != nil ? d.bool(forKey: "cueMode") : config.str("ANSWER_STYLE", "poin") != "naskah"
+        compact = d.bool(forKey: "compact")
+        taskNotes = d.string(forKey: "taskNotes") ?? ""
+        convoView = d.bool(forKey: "convoView")
         reload()
     }
 
@@ -81,6 +96,8 @@ final class Copilot: ObservableObject {
     func reload() {
         config = Config.load()
         knowledge = KnowledgeLoader.load(home: config.home)
+        // Ucapan lama dari transkrip = bacaan saya yang penuh "uh"; hanya dipakai kalau diminta.
+        if config.str("STYLE_EXAMPLES", "0") != "1" { knowledge.examples = [] }
         llm = LLMClient(endpoints: config.endpoints(), hedge: config.num("LLM_HEDGE_SECONDS", 1.5),
                         maxTokens: Int(config.num("LLM_MAX_TOKENS", 220)))
     }
@@ -292,15 +309,19 @@ final class Copilot: ObservableObject {
 
         answerTask?.cancel()
         if let first = answers.first, !first.done { answers.removeFirst() }
-        let answer = Answer(question: question)
+        var answer = Answer(question: question)
+        answer.bridge = Bridge.pick(for: question, avoiding: recentBridges)
+        recentBridges = Array((recentBridges + [answer.bridge]).suffix(4))
+        focusIndex = 0
         let id = answer.id
         answers.insert(answer, at: 0)
-        if answers.count > 10 { answers.removeLast(answers.count - 10) }
+        if answers.count > 40 { answers.removeLast(answers.count - 40) }
 
         let messages = [
-            ChatMessage(role: "system", content: Prompt.system(config, knowledge, allowSkip: !force)),
+            ChatMessage(role: "system", content: Prompt.system(config, knowledge, allowSkip: !force, cues: cueMode, notes: taskNotes)),
             ChatMessage(role: "user", content: Prompt.user(lines: lines, volatileThem: volatileThem,
-                                                           typed: (typed?.isEmpty ?? true) ? nil : typed)),
+                                                           typed: (typed?.isEmpty ?? true) ? nil : typed,
+                                                           maxWords: cueMode ? nil : Int(config.num("ANSWER_MAX_WORDS", 75)))),
         ]
         let llm = self.llm!
         answerTask = Task { [weak self] in
@@ -333,6 +354,13 @@ final class Copilot: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Gulir satu kalimat (⌃⌥→ / ⌃⌥←) di mode ringkas.
+    func focusStep(_ delta: Int) {
+        guard let a = answers.first else { return }
+        let count = Focus.sentences(bridge: a.bridge, answer: a.text).count
+        focusIndex = min(max(0, focusIndex + delta), max(0, count - 1))
     }
 
     private func update(_ id: UUID, _ change: (inout Answer) -> Void) {

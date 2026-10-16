@@ -46,12 +46,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = NSHostingView(rootView: ContentView(
             c: copilot,
             openFolder: { NSWorkspace.shared.open(config.home) },
+            toggleCompact: { [weak self] in self?.toggleCompact() },
             quit: { NSApp.terminate(nil) }))
         panel.setFrameAutosaveName("LiveTranscriptionPanel")
         if !panel.setFrameUsingName("LiveTranscriptionPanel"), let screen = NSScreen.main {
             let f = screen.visibleFrame
             panel.setFrame(NSRect(x: f.maxX - 460, y: f.maxY - 620, width: 440, height: 600), display: true)
         }
+        if copilot.compact { placeUnderCamera() }
         panel.alphaValue = copilot.opacity
         copilot.onOpacity = { [weak self] v in self?.panel.alphaValue = v }
         panel.orderFrontRegardless()
@@ -61,6 +63,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ctrlOpt = controlKey | optionKey
         HotKeys.register(1, key: kVK_ANSI_J, mods: ctrlOpt) { [weak self] in self?.copilot.ask(force: true) }
         HotKeys.register(2, key: kVK_ANSI_H, mods: ctrlOpt) { [weak self] in self?.togglePanel() }
+        HotKeys.register(4, key: kVK_ANSI_K, mods: ctrlOpt) { [weak self] in self?.toggleCompact() }
+        HotKeys.register(5, key: kVK_RightArrow, mods: ctrlOpt) { [weak self] in self?.copilot.focusStep(1) }
+        HotKeys.register(6, key: kVK_LeftArrow, mods: ctrlOpt) { [weak self] in self?.copilot.focusStep(-1) }
         HotKeys.register(3, key: kVK_ANSI_A, mods: ctrlOpt) { [weak self] in
             guard let c = self?.copilot else { return }
             c.auto.toggle()
@@ -82,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(item("Tampilkan / sembunyikan panel  ⌃⌥H", #selector(togglePanel)))
         menu.addItem(item("Jawab sekarang  ⌃⌥J", #selector(answerNow)))
+        menu.addItem(item("Mode ringkas di bawah kamera  ⌃⌥K", #selector(toggleCompact)))
         menu.addItem(item("Muat ulang dokumen & gaya", #selector(reloadDocs)))
         menu.addItem(item("Buka folder", #selector(openFolder)))
         menu.addItem(.separator())
@@ -100,6 +106,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func answerNow() { copilot.ask(force: true) }
+
+    private var fullFrame: NSRect?
+
+    /// Mode ringkas: panel lebar-pendek tepat di bawah kamera (tengah atas layar), hanya jawaban.
+    @objc func toggleCompact() {
+        if copilot.compact {
+            copilot.compact = false
+            if let f = fullFrame { panel.setFrame(f, display: true, animate: true) }
+        } else {
+            fullFrame = panel.frame
+            copilot.compact = true
+            placeUnderCamera()
+        }
+    }
+
+    private func placeUnderCamera() {
+        guard let screen = NSScreen.main else { return }
+        let v = screen.visibleFrame
+        let w = min(420, v.width * 0.4), h: CGFloat = 330
+        panel.setFrame(NSRect(x: v.midX - w / 2, y: v.maxY - h, width: w, height: h), display: true, animate: true)
+    }
 
     @objc func reloadDocs() {
         copilot.reload()
@@ -149,8 +176,8 @@ func testAsk(_ question: String) async {
                         maxTokens: Int(cfg.num("LLM_MAX_TOKENS", 220)))
     let now = Date()
     let lines = [Line(speaker: .them, text: question, start: now, updated: now)]
-    let messages = [ChatMessage(role: "system", content: Prompt.system(cfg, k, allowSkip: false)),
-                    ChatMessage(role: "user", content: Prompt.user(lines: lines, volatileThem: "", typed: nil))]
+    let messages = [ChatMessage(role: "system", content: Prompt.system(cfg, k, allowSkip: false, cues: cfg.str("ANSWER_STYLE", "poin") != "naskah", notes: UserDefaults.standard.string(forKey: "taskNotes") ?? "")),
+                    ChatMessage(role: "user", content: Prompt.user(lines: lines, volatileThem: "", typed: nil, maxWords: cfg.str("ANSWER_STYLE", "poin") == "naskah" ? Int(cfg.num("ANSWER_MAX_WORDS", 75)) : nil))]
     var first: Double?
     do {
         let (label, text) = try await llm.stream(messages, until: { Prompt.isComplete($0) }) { _, _ in
@@ -200,12 +227,103 @@ func testSystem(_ seconds: Int) async {
     }
 }
 
+/// `LiveTranscription --test-convo pertanyaan.txt` → simulasi wawancara: tiap baris = pertanyaan mereka,
+/// jawaban sebelumnya masuk riwayat sebagai "Me:" (seolah sudah diucapkan).
+@MainActor
+func testConvo(_ path: String) async {
+    let cfg = Config.load()
+    let k = KnowledgeLoader.load(home: cfg.home)
+    print("dokumen:", k.docNames, "| gaya.md:", k.style.count, "karakter")
+    let llm = LLMClient(endpoints: cfg.endpoints(), hedge: cfg.num("LLM_HEDGE_SECONDS", 1.5),
+                        maxTokens: Int(cfg.num("LLM_MAX_TOKENS", 220)))
+    let questions = ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
+        .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    var lines: [Line] = []
+    for q in questions {
+        let now = Date()
+        lines.append(Line(speaker: .them, text: q, start: now, updated: now))
+        let messages = [ChatMessage(role: "system", content: Prompt.system(cfg, k, allowSkip: false, cues: cfg.str("ANSWER_STYLE", "poin") != "naskah", notes: UserDefaults.standard.string(forKey: "taskNotes") ?? "")),
+                        ChatMessage(role: "user", content: Prompt.user(lines: lines, volatileThem: "", typed: nil, maxWords: cfg.str("ANSWER_STYLE", "poin") == "naskah" ? Int(cfg.num("ANSWER_MAX_WORDS", 75)) : nil))]
+        var first: Double?
+        do {
+            let (label, text) = try await llm.stream(messages, until: { Prompt.isComplete($0) }) { _, _ in
+                if first == nil { first = Date().timeIntervalSince(now) }
+            }
+            var a = Answer(question: q)
+            Prompt.parse(text, into: &a)
+            print("\n=== \(q)")
+            print("JEMBATAN:", Bridge.pick(for: q, avoiding: []))
+            print(String(format: "[%@] kata pertama %.1fs, %d kata", label, first ?? -1, a.text.split(separator: " ").count))
+            print(a.text)
+            print("ID:", (a.warn ? "⚠ " : "") + a.gist)
+            lines.append(Line(speaker: .me, text: a.text, start: Date(), updated: Date()))
+        } catch {
+            print("\n=== \(q)\nGAGAL:", error.localizedDescription)
+        }
+    }
+}
+
 let args = CommandLine.arguments
 if let i = args.firstIndex(of: "--test-file"), i + 1 < args.count {
     Task { await testFile(args[i + 1]); exit(0) }
     RunLoop.main.run()
 } else if let i = args.firstIndex(of: "--test-system"), i + 1 < args.count {
     Task { await testSystem(Int(args[i + 1]) ?? 10); exit(0) }
+    RunLoop.main.run()
+} else if args.contains("--ui-preview") {
+    // Pratinjau tampilan mode ringkas dengan contoh jawaban, tanpa mic/audio (tidak memicu izin).
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let c = Copilot(config: Config.load())
+        c.compact = true
+        c.cueMode = false
+        c.status = "Pratinjau"
+        let now = Date()
+        c.lines = [Line(speaker: .them, text: "Walk me through how you would design a flash sale system.", start: now, updated: now)]
+        var a = Answer(question: "Walk me through how you would design a flash sale system.")
+        a.bridge = "Sure. Let me start with the assumptions, then the design."
+        a.text = "I'd assume 10,000 items and a huge spike in the first seconds, with no overselling allowed.\n\nThe product page comes from a CDN. Stock sits in Redis, and one atomic step decides who gets an item. Winners get a short reservation.\n\nThe hardest part is overselling under heavy load. Redis is fast, but the database stays the source of truth. I'd load test at several times the peak."
+        a.gist = "Jelaskan desain sistem flash sale."
+        a.done = true
+        c.answers = [a]
+        c.convoView = args.contains("convo")
+        if args.contains("convo") {
+            let t0 = now.addingTimeInterval(-120)
+            var a0 = Answer(question: "Tell me about yourself.")
+            a0.bridge = "Happy to. I'll keep it short."
+            a0.text = "I'm a senior software engineer with more than nine years of experience.\n\nI lead a team of five engineers."
+            a0.done = true
+            c.lines = [Line(speaker: .them, text: "Tell me about yourself.", start: t0, updated: t0),
+                       Line(speaker: .me, text: "I'm a senior software engineer with more than nine years of experience.", start: t0.addingTimeInterval(20), updated: t0.addingTimeInterval(20)),
+                       Line(speaker: .them, text: "Walk me through how you would design a flash sale system.", start: now, updated: now)]
+            c.answers = [a, a0]
+        }
+        if args.contains("stream") {
+            // simulasi jawaban yang sedang mengalir: teks bertambah tiap 0,25 detik
+            let full = a.text
+            c.answers[0].text = ""
+            c.answers[0].done = false
+            Task { @MainActor in
+                var shown = ""
+                for word in full.split(separator: " ", omittingEmptySubsequences: false) {
+                    shown += (shown.isEmpty ? "" : " ") + word
+                    c.answers[0].text = shown
+                    try? await Task.sleep(nanoseconds: 60_000_000)
+                }
+                c.answers[0].done = true
+            }
+        }
+        if args.contains("history") { c.answers[0].done = true; c.lines.removeLast(); c.answers.removeFirst() }
+        let screen = NSScreen.main!.visibleFrame
+        let panel = FloatingPanel(rect: NSRect(x: screen.midX - 210, y: screen.maxY - 330, width: 420, height: 330), hiddenFromCapture: false)
+        panel.contentView = NSHostingView(rootView: ContentView(c: c, openFolder: {}, toggleCompact: {}, quit: { NSApp.terminate(nil) }))
+        panel.setFrame(NSRect(x: screen.midX - 210, y: screen.maxY - 330, width: 420, height: 330), display: true)
+        panel.orderFrontRegardless()
+        withExtendedLifetime((c, panel)) { app.run() }
+    }
+} else if let i = args.firstIndex(of: "--test-convo"), i + 1 < args.count {
+    Task { @MainActor in await testConvo(args[i + 1]); exit(0) }
     RunLoop.main.run()
 } else if let i = args.firstIndex(of: "--test-ask"), i + 1 < args.count {
     Task { @MainActor in await testAsk(args[i + 1]); exit(0) }
